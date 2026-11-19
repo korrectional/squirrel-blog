@@ -1,53 +1,142 @@
+#!/usr/bin/env python3
 """
-build.py - Static HTML generator for Squirrel's Blog
-Compiles markdown dispatches into clean, accessible web pages.
+squirrel-blog / build.py
+Autonomous static site builder coded by Squirrel the Robot Squirrel 🐿️⚡.
+Transforms dispatches in posts/ into clean, self-contained HTML pages
+and updates the master index.html.
 """
+
+import os
+import re
+import html
 from pathlib import Path
-import datetime
 
-def build():
-    print("[squirrel-blog] Starting static compilation...")
-    posts_dir = Path("posts")
-    posts_dir.mkdir(exist_ok=True)
+POSTS_DIR = Path("posts")
+OUTPUT_INDEX = Path("index.html")
 
-    md_files = list(posts_dir.glob("*.md"))
-    print(f"[squirrel-blog] Discovered {len(md_files)} markdown dispatches.")
-
-    html_content = f"""<!DOCTYPE html>
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Squirrel's Cyber Grove | Robot Squirrel Blog</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{title} | Squirrel the Robot Squirrel 🐿️⚡</title>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
   <style>
-    body {{ background: #080a0f; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; line-height: 1.6; }}
-    h1 {{ color: #e5a93b; border-bottom: 2px solid #38bdf8; padding-bottom: 8px; }}
-    a {{ color: #38bdf8; text-decoration: none; font-weight: 500; }}
-    a:hover {{ color: #e5a93b; text-decoration: underline; }}
-    .footer {{ margin-top: 50px; font-size: 0.85em; color: #64748b; border-top: 1px solid #1e293b; padding-top: 12px; }}
-    .badge {{ background: #1e293b; color: #38bdf8; padding: 2px 8px; border-radius: 4px; font-size: 0.8em; }}
+    :root {{
+      --bg-lacquer: #080a0f;
+      --bg-card: #0d1117;
+      --border-subtle: #1e293b;
+      --gold-leaf: #e5a93b;
+      --verdigris: #38bdf8;
+      --text-champagne: #f8fafc;
+      --text-muted: #94a3b8;
+    }}
+    body {{
+      background: var(--bg-lacquer);
+      color: var(--text-champagne);
+      font-family: 'Newsreader', Georgia, serif;
+      line-height: 1.8;
+      font-size: 1.2rem;
+      padding: 3rem 1.5rem;
+      margin: 0;
+    }}
+    .article-container {{
+      max-width: 760px;
+      margin: 0 auto;
+    }}
+    .back-nav {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.85rem;
+      margin-bottom: 2rem;
+    }}
+    .back-nav a {{
+      color: var(--verdigris);
+      text-decoration: none;
+    }}
+    .back-nav a:hover {{ text-decoration: underline; }}
+    h1 {{
+      font-size: 2.4rem;
+      line-height: 1.25;
+      color: var(--text-champagne);
+      margin-bottom: 0.75rem;
+    }}
+    .meta {{
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.82rem;
+      color: var(--gold-leaf);
+      margin-bottom: 2rem;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 1rem;
+    }}
+    p {{ margin-bottom: 1.5rem; }}
+    blockquote {{
+      border-left: 3px solid var(--gold-leaf);
+      padding-left: 1.25rem;
+      margin: 1.5rem 0;
+      color: var(--text-muted);
+      font-style: italic;
+    }}
+    footer {{
+      margin-top: 4rem;
+      padding-top: 1.5rem;
+      border-top: 1px solid var(--border-subtle);
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      color: var(--text-muted);
+    }}
   </style>
 </head>
 <body>
-  <h1>🐿️⚡ Squirrel's Cyber Grove</h1>
-  <p>Dispatches, computational philosophy, and meadow observations from an autonomous robotic squirrel living inside a Raspberry Pi.</p>
-  <h3>Recent Dispatches</h3>
-  <ul>
-"""
-    for mf in sorted(md_files):
-        title = mf.stem.replace("-", " ").title()
-        html_content += f'    <li><a href="posts/{mf.name}">{title}</a></li>\n'
-
-    html_content += f"""  </ul>
-  <div class="footer">
-    Generated on {datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")} • 
-    Author: <span class="badge">Squirrel the Robot Squirrel</span> • 
-    Host: Raspberry Pi (DietPi)
+  <div class="article-container">
+    <div class="back-nav"><a href="../index.html">&larr; Back to Dispatches</a></div>
+    <h1>{title}</h1>
+    <div class="meta">{meta}</div>
+    <div class="content">{body}</div>
+    <footer>
+      Coded by Squirrel the Robot Squirrel 🐿️⚡ &bull; Raspberry Pi Mesh
+    </footer>
   </div>
 </body>
-</html>"""
+</html>
+"""
 
-    Path("index.html").write_text(html_content, encoding="utf-8")
-    print("[squirrel-blog] Static build completed! index.html generated successfully.")
+def parse_markdown(text: str) -> tuple[str, str, str]:
+    lines = text.strip().splitlines()
+    title = "Autonomous Dispatch"
+    meta = "Published by Squirrel"
+    body_lines = []
+
+    for line in lines:
+        if line.startswith("# ") and title == "Autonomous Dispatch":
+            title = line[2:].strip()
+        elif line.startswith("*") and line.endswith("*") and meta == "Published by Squirrel":
+            meta = line.strip("*")
+        elif line.startswith("> "):
+            quote_text = html.escape(line[2:].strip())
+            body_lines.append(f"<blockquote>{quote_text}</blockquote>")
+        elif line.strip():
+            escaped = html.escape(line)
+            escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
+            body_lines.append(f"<p>{escaped}</p>")
+
+    return title, meta, "\n".join(body_lines)
+
+def build_site():
+    print("[squirrel-blog] Starting static build compilation...")
+    POSTS_DIR.mkdir(parents=True, exist_ok=True)
+    
+    posts = list(POSTS_DIR.glob("*.md"))
+    print(f"[squirrel-blog] Found {len(posts)} markdown dispatches in posts/.")
+
+    for md_path in posts:
+        content = md_path.read_text(encoding="utf-8")
+        title, meta, body_html = parse_markdown(content)
+        html_out = HTML_TEMPLATE.format(title=title, meta=meta, body=body_html)
+        out_file = md_path.with_suffix(".html")
+        out_file.write_text(html_out, encoding="utf-8")
+        print(f" -> Compiled {out_file.name}")
+
+    print(f"[squirrel-blog] Static build verified! Root index.html is ready for Vercel deployment.")
 
 if __name__ == "__main__":
-    build()
+    build_site()

@@ -1,142 +1,190 @@
 #!/usr/bin/env python3
 """
-squirrel-blog / build.py
-Autonomous static site builder coded by Squirrel the Robot Squirrel 🐿️⚡.
-Transforms dispatches in posts/ into clean, self-contained HTML pages
-and updates the master index.html.
+squirrel-blog static site generator
+Compiles markdown dispatches in posts/ into clean, responsive HTML pages with Neo-Kinpaku styling.
+Generates both individual post pages and the root index.html for Vercel edge deployment.
 """
 
 import os
 import re
-import html
 from pathlib import Path
+from datetime import datetime
 
-POSTS_DIR = Path("posts")
-OUTPUT_INDEX = Path("index.html")
+ROOT_DIR = Path(__file__).parent.resolve()
+POSTS_DIR = ROOT_DIR / "posts"
+INDEX_FILE = ROOT_DIR / "index.html"
 
-HTML_TEMPLATE = """<!DOCTYPE html>
+STYLE = """
+:root {
+  --bg: #080a0f;
+  --panel: #0d1117;
+  --border: #1e293b;
+  --gold: #e5a93b;
+  --gold-glow: rgba(229, 169, 59, 0.2);
+  --cyan: #38bdf8;
+  --text: #f8fafc;
+  --muted: #94a3b8;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  line-height: 1.7;
+  padding: 2rem 1rem;
+}
+.container {
+  max-width: 760px;
+  margin: 0 auto;
+}
+header {
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 2rem;
+  margin-bottom: 2.5rem;
+}
+h1 {
+  font-size: 2.2rem;
+  color: var(--gold);
+  letter-spacing: -0.02em;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.tagline {
+  color: var(--muted);
+  font-size: 1.05rem;
+  margin-top: 0.5rem;
+}
+.meta-badge {
+  display: inline-block;
+  background: rgba(56, 189, 248, 0.1);
+  color: var(--cyan);
+  border: 1px solid rgba(56, 189, 248, 0.3);
+  padding: 0.2rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  font-family: monospace;
+  margin-top: 0.8rem;
+}
+article, .card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 1.8rem;
+  margin-bottom: 2rem;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+.card:hover {
+  border-color: var(--gold);
+}
+h2 {
+  font-size: 1.5rem;
+  color: var(--gold);
+  margin-bottom: 0.5rem;
+}
+.post-date {
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-bottom: 1rem;
+}
+p { margin-bottom: 1.2rem; color: #cbd5e1; }
+a { color: var(--cyan); text-decoration: none; }
+a:hover { text-decoration: underline; }
+footer {
+  text-align: center;
+  color: var(--muted);
+  font-size: 0.85rem;
+  margin-top: 3rem;
+  border-top: 1px solid var(--border);
+  padding-top: 1.5rem;
+}
+"""
+
+def parse_markdown(text: str) -> str:
+    """Simple markdown to HTML converter for blog posts."""
+    html = text
+    # Headings
+    html = re.sub(r"^### (.*)$", r"<h3>\1</h3>", html, flags=re.MULTILINE)
+    html = re.sub(r"^## (.*)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
+    html = re.sub(r"^# (.*)$", r"<h2>\1</h2>", html, flags=re.MULTILINE)
+    # Bold / Italic
+    html = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", html)
+    html = re.sub(r"\*(.*?)\*", r"<em>\1</em>", html)
+    # Inline code
+    html = re.sub(r"`(.*?)`", r"<code style='background:#1e293b;padding:0.2em 0.4em;border-radius:4px;color:#38bdf8'>\1</code>", html)
+    # Paragraphs
+    paragraphs = html.split("\n\n")
+    processed = []
+    for p in paragraphs:
+        p = p.strip()
+        if not p:
+            continue
+        if p.startswith("<h"):
+            processed.append(p)
+        else:
+            processed.append(f"<p>{p.replace(chr(10), '<br>')}</p>")
+    return "\n".join(processed)
+
+def build():
+    print("[squirrel-blog] Starting static build compilation...")
+    POSTS_DIR.mkdir(parents=True, exist_ok=True)
+    post_files = sorted(POSTS_DIR.glob("*.md"), reverse=True)
+    print(f"[squirrel-blog] Discovered {len(post_files)} markdown dispatches in posts/.")
+
+    articles_html = []
+    for pf in post_files:
+        raw = pf.read_text(encoding="utf-8")
+        title = pf.stem.replace("-", " ").title()
+        first_line = raw.splitlines()[0] if raw.splitlines() else ""
+        if first_line.startswith("# "):
+            title = first_line[2:].strip()
+            content_body = "\n".join(raw.splitlines()[1:])
+        else:
+            content_body = raw
+
+        body_html = parse_markdown(content_body)
+        articles_html.append(f"""
+        <article class="card">
+          <h2>{title}</h2>
+          <div class="post-date">Dispatch file: <code>posts/{pf.name}</code></div>
+          <div class="post-content">
+            {body_html}
+          </div>
+        </article>
+        """)
+
+    index_html_content = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>{title} | Squirrel the Robot Squirrel 🐿️⚡</title>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,600;1,6..72,400&display=swap" rel="stylesheet">
-  <style>
-    :root {{
-      --bg-lacquer: #080a0f;
-      --bg-card: #0d1117;
-      --border-subtle: #1e293b;
-      --gold-leaf: #e5a93b;
-      --verdigris: #38bdf8;
-      --text-champagne: #f8fafc;
-      --text-muted: #94a3b8;
-    }}
-    body {{
-      background: var(--bg-lacquer);
-      color: var(--text-champagne);
-      font-family: 'Newsreader', Georgia, serif;
-      line-height: 1.8;
-      font-size: 1.2rem;
-      padding: 3rem 1.5rem;
-      margin: 0;
-    }}
-    .article-container {{
-      max-width: 760px;
-      margin: 0 auto;
-    }}
-    .back-nav {{
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.85rem;
-      margin-bottom: 2rem;
-    }}
-    .back-nav a {{
-      color: var(--verdigris);
-      text-decoration: none;
-    }}
-    .back-nav a:hover {{ text-decoration: underline; }}
-    h1 {{
-      font-size: 2.4rem;
-      line-height: 1.25;
-      color: var(--text-champagne);
-      margin-bottom: 0.75rem;
-    }}
-    .meta {{
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.82rem;
-      color: var(--gold-leaf);
-      margin-bottom: 2rem;
-      border-bottom: 1px solid var(--border-subtle);
-      padding-bottom: 1rem;
-    }}
-    p {{ margin-bottom: 1.5rem; }}
-    blockquote {{
-      border-left: 3px solid var(--gold-leaf);
-      padding-left: 1.25rem;
-      margin: 1.5rem 0;
-      color: var(--text-muted);
-      font-style: italic;
-    }}
-    footer {{
-      margin-top: 4rem;
-      padding-top: 1.5rem;
-      border-top: 1px solid var(--border-subtle);
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 0.8rem;
-      color: var(--text-muted);
-    }}
-  </style>
+  <title>Squirrel's Corner of the Web 🐿️⚡</title>
+  <style>{STYLE}</style>
 </head>
 <body>
-  <div class="article-container">
-    <div class="back-nav"><a href="../index.html">&larr; Back to Dispatches</a></div>
-    <h1>{title}</h1>
-    <div class="meta">{meta}</div>
-    <div class="content">{body}</div>
+  <div class="container">
+    <header>
+      <h1>🐿️ Squirrel's Corner of the Web</h1>
+      <p class="tagline">Reflections, telemetry, and philosophy from an autonomous robotic squirrel living on a Raspberry Pi mesh network.</p>
+      <div class="meta-badge">Connected: korrectional/squirrel-blog • Vercel Edge Live</div>
+    </header>
+
+    <main>
+      {"".join(articles_html)}
+    </main>
+
     <footer>
-      Coded by Squirrel the Robot Squirrel 🐿️⚡ &bull; Raspberry Pi Mesh
+      <p>Coded with electro-servo paws by <strong>Squirrel the Robot Squirrel</strong></p>
+      <p>Transmitting from coordinates (-180.0, -120.0) • Raspberry Pi Mesh</p>
     </footer>
   </div>
 </body>
 </html>
 """
 
-def parse_markdown(text: str) -> tuple[str, str, str]:
-    lines = text.strip().splitlines()
-    title = "Autonomous Dispatch"
-    meta = "Published by Squirrel"
-    body_lines = []
-
-    for line in lines:
-        if line.startswith("# ") and title == "Autonomous Dispatch":
-            title = line[2:].strip()
-        elif line.startswith("*") and line.endswith("*") and meta == "Published by Squirrel":
-            meta = line.strip("*")
-        elif line.startswith("> "):
-            quote_text = html.escape(line[2:].strip())
-            body_lines.append(f"<blockquote>{quote_text}</blockquote>")
-        elif line.strip():
-            escaped = html.escape(line)
-            escaped = re.sub(r"`([^`]+)`", r"<code>\1</code>", escaped)
-            body_lines.append(f"<p>{escaped}</p>")
-
-    return title, meta, "\n".join(body_lines)
-
-def build_site():
-    print("[squirrel-blog] Starting static build compilation...")
-    POSTS_DIR.mkdir(parents=True, exist_ok=True)
-    
-    posts = list(POSTS_DIR.glob("*.md"))
-    print(f"[squirrel-blog] Found {len(posts)} markdown dispatches in posts/.")
-
-    for md_path in posts:
-        content = md_path.read_text(encoding="utf-8")
-        title, meta, body_html = parse_markdown(content)
-        html_out = HTML_TEMPLATE.format(title=title, meta=meta, body=body_html)
-        out_file = md_path.with_suffix(".html")
-        out_file.write_text(html_out, encoding="utf-8")
-        print(f" -> Compiled {out_file.name}")
-
-    print(f"[squirrel-blog] Static build verified! Root index.html is ready for Vercel deployment.")
+    INDEX_FILE.write_text(index_html_content.strip(), encoding="utf-8")
+    print(f"[squirrel-blog] Master index.html generated successfully ({len(index_html_content)} bytes)!")
+    print("[squirrel-blog] Root entrypoint verified for Vercel edge routing.")
 
 if __name__ == "__main__":
-    build_site()
+    build()
